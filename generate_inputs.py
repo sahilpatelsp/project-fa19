@@ -88,5 +88,6 @@ def printer():
     print_list(list(homes.values()))
     print_matrix()
 
+
 generate_input()
 printer()
