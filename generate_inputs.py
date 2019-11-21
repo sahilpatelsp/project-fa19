@@ -9,11 +9,13 @@ homes = {}
 root_name = ""
 matrix = [['x' for _ in range(num_locations)] for i in range(num_locations)]
 def generate_locations_and_homes():
+    countries = []
     for i in range(num_locations):
         bool = False
         while not bool:
-            country = fake.country()
-            if " " not in country:
+            country = fake.city()
+            if (" " not in country) and (country not in countries) and (len(country) <= 20):
+                countries.append(country)
                 locations[i] = country
                 bool = True
     chosen_numbers = []
