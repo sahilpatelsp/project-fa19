@@ -21,7 +21,6 @@ def validate_input(input_file, params=[]):
 
 def validate_all_inputs(input_directory, params=[]):
     input_files = utils.get_files_with_extension(input_directory, 'in')
-
     for input_file in input_files:
         validate_input(input_file, params=params)
 
