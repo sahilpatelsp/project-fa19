@@ -4,13 +4,30 @@ sys.path.append('..')
 sys.path.append('../..')
 import argparse
 import utils
+import networkx as nx
 
 from student_utils import *
+from gurobipy import *
 """
 ======================================================================
   Complete the following function.
 ======================================================================
 """
+def subtourelim(model, where):
+  if where == GRB.callback.MIPSOL:
+    selected = []
+    # make a list of edges selected in the solution
+    vals = model.cbGetSolution(model.getVars())
+    #selected = tuplelist((i,j) for i,j in model._vars.keys() if vals[i,j] > 0.5)
+    # find the shortest cycle in the selected edge list
+    # tour = subtour(selected)
+    # if len(tour) < n:
+    #   # add a subtour elimination constraint
+    #   expr = 0
+    #   for i in range(len(tour)):
+    #     for j in range(i+1, len(tour)):
+    #       expr += model._vars[tour[i], tour[j]]
+    #   model.cbLazy(expr <= len(tour)-1)
 
 def solve(list_of_locations, list_of_homes, starting_car_location, adjacency_matrix, params=[]):
     """
@@ -25,7 +42,68 @@ def solve(list_of_locations, list_of_homes, starting_car_location, adjacency_mat
         A dictionary mapping drop-off location to a list of homes of TAs that got off at that particular location
         NOTE: both outputs should be in terms of indices not the names of the locations themselves
     """
-    pass
+
+
+    G = adjacency_matrix_to_graph(adjacency_matrix)[0]
+    spl = dict(nx.all_pairs_dijkstra_path_length(G))
+    loc_len = len(list_of_locations)
+    home_len = len(list_of_homes)
+    start_index = list_of_locations.index(starting_car_location)
+
+    w = {}
+    for i in range(loc_len):
+        for j in range(loc_len):
+            if adjacency_matrix[i][j] == 'x':
+                w[i,j] = 0
+            else:
+                w[i,j] = adjacency_matrix[i][j]
+    home_dict = {}
+    for h in range(home_len):
+        home_dict[h] = list_of_locations.index(list_of_homes[h])
+
+
+    dist = {}
+    for h in range(home_len):
+        for i in range(loc_len):
+            dist[h, i] = spl[home_dict[h]][i]
+    try:
+        m = Model()
+        #v variable for each location
+        v = m.addVars(loc_len, vtype=GRB.BINARY, name="v")
+        #e variable for each edge as a 1D array
+        e = m.addVars(loc_len, loc_len, vtype=GRB.BINARY, name="e")
+        d = m.addVars(home_len, loc_len, vtype=GRB.BINARY, name="d")
+
+        # Set objective
+        m.setObjective(((2/3) * e.prod(w)) + d.prod(dist), GRB.MINIMIZE)
+        m.addConstr(v[start_index] == 1)
+        m.addConstr(v.sum() <= loc_len)
+        m.addConstrs(e[i,j] == 0 for i in range(loc_len) for j in range(loc_len) if w[i,j] == 0)
+
+        m.addConstrs((v[i] == 1) >> (e.sum('*', i) == e.sum(i, '*')) for i in range(loc_len))
+        m.addConstrs((v[i] == 1) >> (e.sum('*', j) >= 1) for j in range(loc_len))
+        m.addConstrs((v[i] == 1) >> (e.sum(i, '*') >= 1) for i in range(loc_len))
+
+        m.addConstrs((v[i] == 0) >> (e.sum('*', i) == 0) for i in range(loc_len))
+        m.addConstrs((v[i] == 0) >> (e.sum(i, '*') == 0) for i in range(loc_len))
+
+        m.addConstrs((v[i] == 0) >> (d.sum('*', i) == 0) for i in range(loc_len))
+        m.addConstrs(d.sum(h, '*') == 1 for h in range(home_len))
+
+        # Optimize model
+        # m.Params.lazyConstraints = 1
+        m.optimize()
+        for var in m.getVars():
+            if var.x == 1:
+                print('%s = %g' % (var.varName, var.x))
+        print(e.prod(w).getValue())
+        print('Obj: ', m.objVal)
+
+    except GurobiError as e:
+        print('Error code ' + str(e.errno) + ": " + str(e))
+
+    except AttributeError:
+        print('Encountered an attribute error')
 
 """
 ======================================================================
@@ -60,14 +138,15 @@ def solve_from_file(input_file, output_directory, params=[]):
 
     input_data = utils.read_file(input_file)
     num_of_locations, num_houses, list_locations, list_houses, starting_car_location, adjacency_matrix = data_parser(input_data)
-    car_path, drop_offs = solve(list_locations, list_houses, starting_car_location, adjacency_matrix, params=params)
-
-    basename, filename = os.path.split(input_file)
-    if not os.path.exists(output_directory):
-        os.makedirs(output_directory)
-    output_file = utils.input_to_output(input_file, output_directory)
-
-    convertToFile(car_path, drop_offs, output_file, list_locations)
+    solve(list_locations, list_houses, starting_car_location, adjacency_matrix, params=params)
+    # car_path, drop_offs = solve(list_locations, list_houses, starting_car_location, adjacency_matrix, params=params)
+    #
+    # basename, filename = os.path.split(input_file)
+    # if not os.path.exists(output_directory):
+    #     os.makedirs(output_directory)
+    # output_file = utils.input_to_output(input_file, output_directory)
+    #
+    # convertToFile(car_path, drop_offs, output_file, list_locations)
 
 
 def solve_all(input_directory, output_directory, params=[]):
