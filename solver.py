@@ -13,21 +13,45 @@ from gurobipy import *
   Complete the following function.
 ======================================================================
 """
-def subtourelim(model, where):
-  if where == GRB.callback.MIPSOL:
-    selected = []
-    # make a list of edges selected in the solution
-    vals = model.cbGetSolution(model.getVars())
-    #selected = tuplelist((i,j) for i,j in model._vars.keys() if vals[i,j] > 0.5)
-    # find the shortest cycle in the selected edge list
-    # tour = subtour(selected)
-    # if len(tour) < n:
-    #   # add a subtour elimination constraint
-    #   expr = 0
-    #   for i in range(len(tour)):
-    #     for j in range(i+1, len(tour)):
-    #       expr += model._vars[tour[i], tour[j]]
-    #   model.cbLazy(expr <= len(tour)-1)
+def subtourelim(m, where):
+    loc_len = m._loc_len
+    if where == GRB.callback.MIPSOL:
+        v_sol = m.cbGetSolution([m._v[i] for i in range(loc_len)])
+        v_1 = [i for i in range(loc_len) if v_sol[i] == 1]
+        e_sol = m.cbGetSolution([m._e[i, j] for i in range(loc_len) for j in range(loc_len)])
+
+        adj_M = [[1 if e_sol[i*loc_len + j] == 1 else 'x' for j in range(loc_len)] for i in range(loc_len)]
+
+        # for i in range(loc_len):
+        #     for j in range(loc_len):
+        #         if e_sol[i*loc_len + j] == 1:
+        #             adj_M[i][j] = 1
+
+        G = adjacency_matrix_to_graph(adj_M)[0]
+        v_s = list(nx.dfs_preorder_nodes(G, m._start_index))
+        if len(v_s) < len(v_1):
+            v_t = [el for el in v_1 if el not in v_s]
+            expr_in = 0
+            expr_out = 0
+            for i in v_s:
+                for j in v_t:
+                    expr_in += m._e[i, j]
+                    expr_out += m._e[j, i]
+            m.cbLazy(expr_in >= 1)
+            m.cbLazy(expr_out >= 1)
+        # G = adjacency_matrix_to_graph(adj_M)[0]
+        # v_s = list(nx.dfs_preorder_nodes(G, m._start_index))
+        # while len(v_s) < len(v_1):
+        #     v_t = [el for el in v_1 if el not in v_s]
+        #     expr_in = 0
+        #     expr_out = 0
+        #     for i in v_s:
+        #         for j in v_t:
+        #             expr_in += m._e[i, j]
+        #             expr_out += m._e[j, i]
+        #     m.cbLazy(expr_in >= 1)
+        #     m.cbLazy(expr_out >= 1)
+        #     v_s += list(nx.dfs_preorder_nodes(G, v_t[0]))
 
 def solve(list_of_locations, list_of_homes, starting_car_location, adjacency_matrix, params=[]):
     """
@@ -68,18 +92,25 @@ def solve(list_of_locations, list_of_homes, starting_car_location, adjacency_mat
             dist[h, i] = spl[home_dict[h]][i]
     try:
         m = Model()
+        m = m.relax()
         #v variable for each location
         v = m.addVars(loc_len, vtype=GRB.BINARY, name="v")
         #e variable for each edge as a 1D array
         e = m.addVars(loc_len, loc_len, vtype=GRB.BINARY, name="e")
         d = m.addVars(home_len, loc_len, vtype=GRB.BINARY, name="d")
-
+        m._start_index = m.addVar(vtype=GRB.INTEGER)
+        m._start_index= start_index
+        m._loc_len = m.addVar(vtype=GRB.INTEGER)
+        m._loc_len = loc_len
+        m._e = e
+        m._v = v
         # Set objective
         m.setObjective(((2/3) * e.prod(w)) + d.prod(dist), GRB.MINIMIZE)
         m.addConstr(v[start_index] == 1)
+        m.addConstr(v.sum() >= 1)
         m.addConstr(v.sum() <= loc_len)
-        m.addConstrs(e[i,j] == 0 for i in range(loc_len) for j in range(loc_len) if w[i,j] == 0)
-
+        m.addConstrs(e[i,j] == 0 for j in range(loc_len) for i in range(loc_len) if w[i,j] == 0)
+        m.addConstr(e.sum() >= v.sum())
         m.addConstrs((v[i] == 1) >> (e.sum('*', i) == e.sum(i, '*')) for i in range(loc_len))
         m.addConstrs((v[i] == 1) >> (e.sum('*', j) >= 1) for j in range(loc_len))
         m.addConstrs((v[i] == 1) >> (e.sum(i, '*') >= 1) for i in range(loc_len))
@@ -88,15 +119,15 @@ def solve(list_of_locations, list_of_homes, starting_car_location, adjacency_mat
         m.addConstrs((v[i] == 0) >> (e.sum(i, '*') == 0) for i in range(loc_len))
 
         m.addConstrs((v[i] == 0) >> (d.sum('*', i) == 0) for i in range(loc_len))
-        m.addConstrs(d.sum(h, '*') == 1 for h in range(home_len))
 
+        m.addConstrs(d.sum(h, '*') == 1 for h in range(home_len))
         # Optimize model
-        # m.Params.lazyConstraints = 1
-        m.optimize()
-        for var in m.getVars():
-            if var.x == 1:
-                print('%s = %g' % (var.varName, var.x))
-        print(e.prod(w).getValue())
+        m.params.LazyConstraints = 1
+        m.optimize(subtourelim)
+        # for var in m.getVars():
+        #     if var.x == 1:
+        #         print('%s = %g' % (var.varName, var.x))
+        # print(e.prod(w).getValue())
         print('Obj: ', m.objVal)
 
     except GurobiError as e:
