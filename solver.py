@@ -8,6 +8,8 @@ import networkx as nx
 
 from student_utils import *
 from gurobipy import *
+import gurobipy as gp
+from collections import defaultdict
 """
 ======================================================================
   Complete the following function.
@@ -21,7 +23,6 @@ def subtourelim(m, where):
         e_sol = m.cbGetSolution([m._e[i, j] for i in range(loc_len) for j in range(loc_len)])
 
         adj_M = [[1 if e_sol[i*loc_len + j] == 1 else 'x' for j in range(loc_len)] for i in range(loc_len)]
-
         # for i in range(loc_len):
         #     for j in range(loc_len):
         #         if e_sol[i*loc_len + j] == 1:
@@ -97,44 +98,92 @@ def solve(list_of_locations, list_of_homes, starting_car_location, adjacency_mat
         v = m.addVars(loc_len, vtype=GRB.BINARY, name="v")
         #e variable for each edge as a 1D array
         e = m.addVars(loc_len, loc_len, vtype=GRB.BINARY, name="e")
+        u = m.addVars(loc_len, vtype=GRB.INTEGER, name="u")
+        p = m.addVars(loc_len, loc_len, vtype=GRB.BINARY, name="p")
         d = m.addVars(home_len, loc_len, vtype=GRB.BINARY, name="d")
-        m._start_index = m.addVar(vtype=GRB.INTEGER)
-        m._start_index= start_index
-        m._loc_len = m.addVar(vtype=GRB.INTEGER)
-        m._loc_len = loc_len
+        m.update()
+        # m._start_index = m.addVar(vtype=GRB.INTEGER)
+        # m._start_index= start_index
+        # m._loc_len = m.addVar(vtype=GRB.INTEGER)
+        # m._loc_len = loc_len
         m._e = e
         m._v = v
+        m._d = d
         # Set objective
         m.setObjective(((2/3) * e.prod(w)) + d.prod(dist), GRB.MINIMIZE)
-        m.addConstr(v[start_index] == 1)
-        m.addConstr(v.sum() >= 1)
-        m.addConstr(v.sum() <= loc_len)
+        m.addConstrs(e.sum('*', i) == e.sum(i, '*') for i in range(loc_len))
         m.addConstrs(e[i,j] == 0 for j in range(loc_len) for i in range(loc_len) if w[i,j] == 0)
+        m.addConstr(v[start_index] == 1)
         m.addConstr(e.sum() >= v.sum())
-        m.addConstrs((v[i] == 1) >> (e.sum('*', i) == e.sum(i, '*')) for i in range(loc_len))
-        m.addConstrs((v[i] == 1) >> (e.sum('*', j) >= 1) for j in range(loc_len))
+        m.addConstrs((e[i,j] == 1) >> (v[i] + v[j] == 2) for i in range(loc_len) for j in range(loc_len) if i != j)
+        m.addConstrs((v[i] == 1) >> (e.sum('*', i) >= 1) for i in range(loc_len))
         m.addConstrs((v[i] == 1) >> (e.sum(i, '*') >= 1) for i in range(loc_len))
-
         m.addConstrs((v[i] == 0) >> (e.sum('*', i) == 0) for i in range(loc_len))
         m.addConstrs((v[i] == 0) >> (e.sum(i, '*') == 0) for i in range(loc_len))
 
         m.addConstrs((v[i] == 0) >> (d.sum('*', i) == 0) for i in range(loc_len))
-
         m.addConstrs(d.sum(h, '*') == 1 for h in range(home_len))
-        # Optimize model
+
+        m.addConstr(u[start_index] == 1)
+
+        m.addConstrs((v[i] == 1) >> (u[i] >= 2) for i in range(loc_len) if i != start_index)
+        m.addConstrs((v[i] == 1) >> (u[i] <= v.sum()) for i in range(loc_len) if i != start_index)
+
+        m.addConstrs((p[i,j] == 0) >> (v[i] + v[j] <= 1) for i in range(loc_len) for j in range(loc_len))
+        m.addConstrs((p[i,j] == 1) >> (v[i] + v[j] == 2) for i in range(loc_len) for j in range(loc_len))
+
+        for i in range(loc_len):
+            if i != start_index:
+                for j in range(loc_len):
+                    if j != start_index:
+                        m.addQConstr(((u[i] - u[j] + 1)*p[i,j]) <= ((v.sum() - 1) * (1 - e[i, j])))
+
         m.params.LazyConstraints = 1
-        m.optimize(subtourelim)
-        # for var in m.getVars():
-        #     if var.x == 1:
-        #         print('%s = %g' % (var.varName, var.x))
-        # print(e.prod(w).getValue())
+        m.params.TimeLimit = 180
+        # m.optimize(subtourelim)
+        m.optimize()
+        for var in m.getVars():
+            if var.x > 0 and "p" not in var.varName:
+                print('%s = %g' % (var.varName, var.x))
+        getOutputValues2(m._v, m._e, m._d, w, loc_len, start_index)
         print('Obj: ', m.objVal)
+        # m.computeIIS()
+        # m.write("infeasible.ilp")
+        # m.write("file.lp")
 
     except GurobiError as e:
         print('Error code ' + str(e.errno) + ": " + str(e))
 
     except AttributeError:
         print('Encountered an attribute error')
+
+def getOutputValues2(vertices, edges, dropoffs, weight, loc_len, start_index):
+    adj_matrix = [[1 if edges[i, j].x == 1 else 'x' for j in range(loc_len)] for i in range(loc_len)]
+    G = adjacency_matrix_to_graph(adj_matrix)[0]
+    v_s = list(nx.dfs_preorder_nodes(G, start_index))
+    print(v_s)
+def getOutputValues(vertices, edges, dropoffs, weight, loc_len, start_index):
+    actual_vertices = [i for i in range(loc_len) if vertices[i].x == 1]
+    # new_start_index = actual_vertices.index(start_index)
+    # g = Graph(len(actual_vertices))
+    # [g.addEdge(i,j) for j in range(len(actual_vertices)) for i in range(len(actual_vertices)) if edges[actual_vertices[i], actual_vertices[j]].x == 1]
+    # print(g.isEulerianCycle())
+    #
+    adj = [0] * len(actual_vertices)
+    for i in range(len(actual_vertices)):
+        adj[i] = []
+    # [adj[i].append(j) for j in range(len(actual_vertices)) for i in range(len(actual_vertices)) if edges[actual_vertices[i], actual_vertices[j]].x == 1]
+    # print(printCircuit(adj, actual_vertices, new_start_index))
+    new_start_index = actual_vertices.index(start_index)
+    adj_matrix = [[weight[actual_vertices[i], actual_vertices[j]] if edges[actual_vertices[i], actual_vertices[j]].x == 1 else 'x' for j in range(len(actual_vertices))] for i in range(len(actual_vertices))]
+    # for i in range(len(actual_vertices)):
+    #     for j in range(len(actual_vertices)):
+    #         print(adj_matrix[i][j], end = ' ')
+    #     print()
+    G = adjacency_matrix_to_graph(adj_matrix)[0]
+    circuit = list(nx.eulerian_circuit(G,source=new_start_index))
+    new_circuit = [(actual_vertices[i], actual_vertices[j]) for i,j in circuit]
+    print(new_circuit)
 
 """
 ======================================================================
