@@ -174,7 +174,7 @@ def solve_ilp(list_of_locations, list_of_homes, starting_car_location, adjacency
                 for j in range(loc_len):
                     if j != start_index:
                         m.addConstr((u[i] - u[j] + 1) <= ((loc_len - 1) * (1 - e[i, j])))
-        m.params.TimeLimit = 6000
+        m.params.TimeLimit = 600
         m.optimize()
         # print('Obj: ', m.objVal)
         if m.Status == 9:
