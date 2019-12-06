@@ -1,15 +1,15 @@
 # CS 170 Fall 2019 Project
 #### By Solomon Joseph, Sahil Patel, and Franklin Chian
 
-##Prerequisites
+## Prerequisites
 1. Python: We used version 3.6.2, but any version of python3 <= 3.7 should work for Gurobi purposes. Please visit https://www.python.org/downloads/ if you do not currently have python installed in your machine.
 2. Python package manager: We used pip3, but any python package manager should do the trick. With help installing pip3, please consult https://pip.pypa.io/en/stable/
 3. Networkx (https://networkx.github.io/)
 4. Gurobi Optimizer
 
-##Installation Guide
+## Installation Guide
 
-###Installing Gurobi
+### Installing Gurobi
 Our solution uses Gurobi Optimizer 9.0 under an academic license to formulate and solve ILPs for each graph. For the following steps, please ensure that you are connected to an academic network.
 
 1. Register for a free Gurobi academic license at https://www.gurobi.com/downloads/end-user-license-agreement-academic/
@@ -22,15 +22,15 @@ Our solution uses Gurobi Optimizer 9.0 under an academic license to formulate an
 
 If you are facing any other problems, please refer to https://www.gurobi.com/documentation/8.1/remoteservices/installation.html
 
-###Installing networkx
+### Installing networkx
 To install networkx, simply run the following command:
 `pip3 install networkx`
 
-###Running the solver
+### Running the solver
 1. Navigate to the location of this project
 2. Run python3 solver.py --all ./inputs ./outputs/
 
-###Solver.py functions
+### Solver.py functions
 1. solve(): Computes the cost of a path using both backtracking and ilp, and returns the minimum of both.
 2. solve_backtracking(): Creates a path using a reverse  all-pairs shortest path from homes to the start index.
 3. solve_ilp(): Creates a path using an integer linear programming formulation.
